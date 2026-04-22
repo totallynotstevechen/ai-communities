@@ -90,6 +90,9 @@ export default function MapView() {
     layer.clearLayers()
     markersByIdRef.current.clear()
     navListRef.current = []
+    // Popup was attached to a marker we just destroyed; drop the stale id so arrow
+    // nav can't act on it if Leaflet's popupclose doesn't fire synchronously.
+    popupOpenIdRef.current = null
 
     if (!filtered.length) return
 
@@ -197,7 +200,7 @@ export default function MapView() {
         const cur = list.indexOf(popupOpenIdRef.current)
         const idx = cur >= 0
           ? (cur + (dir === 'next' ? 1 : -1) + list.length) % list.length
-          : 0
+          : (dir === 'next' ? 0 : list.length - 1)
         navigateToPin(list[idx])
         return
       }
@@ -283,7 +286,7 @@ export default function MapView() {
       const cur = list.indexOf(popupOpenIdRef.current)
       const idx = cur >= 0
         ? (cur + (e.key === 'ArrowRight' ? 1 : -1) + list.length) % list.length
-        : 0
+        : (e.key === 'ArrowRight' ? 0 : list.length - 1)
       navigateToPin(list[idx])
     }
     window.addEventListener('keydown', onKey)
