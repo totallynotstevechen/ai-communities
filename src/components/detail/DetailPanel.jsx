@@ -105,21 +105,21 @@ export default function DetailModal() {
                   <ExternalLink size={11} className="shrink-0 opacity-50" />
                 </a>
               )}
-              {c.contact.value && c.contact.type === 'email' && (
+              {c.contact?.value && c.contact.type === 'email' && (
                 <a href={`mailto:${c.contact.value}`}
                   className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 transition-colors">
                   <Mail size={13} className="shrink-0" />
                   {c.contact.value}
                 </a>
               )}
-              {c.contact.value && c.contact.type === 'url' && (
+              {c.contact?.value && c.contact.type === 'url' && (
                 <a href={c.contact.value} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 transition-colors">
                   <Globe size={13} className="shrink-0" />
                   <span className="truncate">{c.contact.value.replace(/^https?:\/\//, '')}</span>
                 </a>
               )}
-              {c.contact.value && c.contact.type === 'text' && (
+              {c.contact?.value && c.contact.type === 'text' && (
                 <p className="text-sm text-gray-500 flex items-center gap-2">
                   <Mail size={13} className="shrink-0 text-gray-400" />
                   {c.contact.value}
