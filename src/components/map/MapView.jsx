@@ -14,12 +14,48 @@ export default function MapView() {
   const markersRef = useRef(null)
   const markersByIdRef = useRef(new Map())
   const navListRef = useRef([])
+  const viewportListRef = useRef([])
   const selectedIdRef = useRef(selectedId)
   const popupOpenIdRef = useRef(null)
   const clearControlRef = useRef(null)
 
   // Keep a ref of the current selectedId so click/keyboard handlers see the latest value
   useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
+
+  // Recompute the subset of navListRef pins that fall within the current map bounds.
+  // Preserves navListRef's sort order by filtering in-place.
+  const recomputeViewportList = () => {
+    const map = mapRef.current
+    if (!map) { viewportListRef.current = []; return }
+    const bounds = map.getBounds()
+    const next = []
+    for (const id of navListRef.current) {
+      const m = markersByIdRef.current.get(id)
+      if (m && bounds.contains(m.getLatLng())) next.push(id)
+    }
+    viewportListRef.current = next
+  }
+
+  // Patch the counter text + nav row visibility inside the currently open popup.
+  // Off-viewport current pin drops the index and shows only "N in view".
+  const updateOpenPopupCounter = () => {
+    const openId = popupOpenIdRef.current
+    if (!openId) return
+    const marker = markersByIdRef.current.get(openId)
+    const popupEl = marker?.getPopup?.()?.getElement?.()
+    if (!popupEl) return
+    const navRow = popupEl.querySelector('[data-nav-row]')
+    if (!navRow) return
+    const list = viewportListRef.current
+    if (list.length < 2) { navRow.style.display = 'none'; return }
+    navRow.style.display = 'flex'
+    const counter = popupEl.querySelector('[data-nav-counter]')
+    if (!counter) return
+    const idx = list.indexOf(openId)
+    counter.textContent = idx >= 0
+      ? `${idx + 1} of ${list.length} in view`
+      : `${list.length} in view`
+  }
 
   // Imperatively navigate popups between pins. Used by popup prev/next and keyboard arrows.
   // Does NOT dispatch SELECT — popup nav is kept independent of the detail sheet.
@@ -78,6 +114,12 @@ export default function MapView() {
       },
     }).addTo(map)
 
+    // One listener covers pan + zoom. moveend fires once per gesture, so no debouncing needed.
+    map.on('moveend', () => {
+      recomputeViewportList()
+      updateOpenPopupCounter()
+    })
+
     return () => { map.remove(); mapRef.current = null }
   }, [])
 
@@ -90,6 +132,7 @@ export default function MapView() {
     layer.clearLayers()
     markersByIdRef.current.clear()
     navListRef.current = []
+    viewportListRef.current = []
     // Popup was attached to a marker we just destroyed; drop the stale id so arrow
     // nav can't act on it if Leaflet's popupclose doesn't fire synchronously.
     popupOpenIdRef.current = null
@@ -102,7 +145,6 @@ export default function MapView() {
       .sort((a, b) => b.priority - a.priority || a.name.localeCompare(b.name))
 
     navListRef.current = visible.map(c => c.id)
-    const navCount = visible.length
     const bounds = []
 
     for (let i = 0; i < visible.length; i++) {
@@ -145,13 +187,13 @@ export default function MapView() {
         ? `<a href="${nextEvent.url}" target="_blank" rel="noopener" style="font-size:11px;color:#3b82f6;text-decoration:none">Visit Upcoming Event &rarr;</a>`
         : ''
 
-      const navRow = navCount > 1
-        ? `<div style="display:flex;justify-content:space-between;align-items:center;margin:-4px -4px 6px;font-size:10px;color:#9ca3af">
+      // Nav row is always emitted but starts hidden; updateOpenPopupCounter() fills in the
+      // counter text and toggles visibility based on the current viewport list size.
+      const navRow = `<div data-nav-row style="display:none;justify-content:space-between;align-items:center;margin:-4px -4px 6px;font-size:10px;color:#9ca3af">
             <button type="button" data-nav="prev" aria-label="Previous community" style="background:transparent;border:0;padding:2px 8px;cursor:pointer;color:#3b82f6;font-size:13px;line-height:1;font-weight:600">&#9664;</button>
-            <span>${i + 1} of ${navCount}</span>
+            <span data-nav-counter></span>
             <button type="button" data-nav="next" aria-label="Next community" style="background:transparent;border:0;padding:2px 8px;cursor:pointer;color:#3b82f6;font-size:13px;line-height:1;font-weight:600">&#9654;</button>
           </div>`
-        : ''
 
       marker.bindPopup(`
         <div style="font-family:system-ui,-apple-system,sans-serif;min-width:200px;max-width:280px">
@@ -173,7 +215,10 @@ export default function MapView() {
         </div>
       `, { maxWidth: 300, className: 'clean-popup' })
 
-      marker.on('popupopen', () => { popupOpenIdRef.current = c.id })
+      marker.on('popupopen', () => {
+        popupOpenIdRef.current = c.id
+        updateOpenPopupCounter()
+      })
       marker.on('popupclose', () => {
         if (popupOpenIdRef.current === c.id) popupOpenIdRef.current = null
       })
@@ -187,6 +232,10 @@ export default function MapView() {
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 10 })
     }
 
+    // Seed the viewport list. fitBounds triggers moveend which also recomputes,
+    // but filter changes that don't move the map wouldn't fire moveend otherwise.
+    recomputeViewportList()
+
     // Delegated click handler for popup links.
     // Prev/next nav is imperative (closes + opens popups) so it doesn't trigger the detail sheet.
     // "See More details" dispatches SELECT to open the sheet.
@@ -194,7 +243,7 @@ export default function MapView() {
       const navBtn = e.target.closest('[data-nav]')
       if (navBtn) {
         e.preventDefault()
-        const list = navListRef.current
+        const list = viewportListRef.current
         if (list.length < 2) return
         const dir = navBtn.dataset.nav
         const cur = list.indexOf(popupOpenIdRef.current)
@@ -280,7 +329,7 @@ export default function MapView() {
       }
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
       if (!popupOpenIdRef.current) return
-      const list = navListRef.current
+      const list = viewportListRef.current
       if (list.length < 2) return
       e.preventDefault()
       const cur = list.indexOf(popupOpenIdRef.current)
